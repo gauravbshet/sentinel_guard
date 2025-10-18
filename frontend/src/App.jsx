@@ -1,7 +1,14 @@
-import './index.css'
+import { Routes, Route } from 'react-router-dom'
+import Dashboard from './components/dashboard.jsx'
+import './App.css'
 
-export default function App() {
+function App() {
   return (
-    <div />
+    <Routes>
+      <Route path="/" element={<Dashboard />} />
+      <Route path="/dashboard" element={<Dashboard />} />
+    </Routes>
   )
 }
+
+export default App

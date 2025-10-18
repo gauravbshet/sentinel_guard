@@ -7,7 +7,12 @@ from ..utils.jwt_handler import create_access_token
 
 router = APIRouter()
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Use bcrypt with proper configuration
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+    bcrypt__default_rounds=12
+)
 
 
 @router.post("/signup")
@@ -17,7 +22,12 @@ async def signup(payload: UserCreate):
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
-    password_hash = pwd_context.hash(payload.password)
+
+    # Truncate password to 72 bytes for bcrypt compatibility
+    password = payload.password.encode(
+        'utf-8')[:72].decode('utf-8', errors='ignore')
+    password_hash = pwd_context.hash(password)
+
     result = await db.users.insert_one({"email": payload.email, "password_hash": password_hash, "role": "admin"})
     return {"id": str(result.inserted_id), "email": payload.email}
 
@@ -26,7 +36,12 @@ async def signup(payload: UserCreate):
 async def login(payload: UserLogin):
     db = get_db()
     user = await db.users.find_one({"email": payload.email})
-    if not user or not pwd_context.verify(payload.password, user.get("password_hash", "")):
+
+    # Truncate password to 72 bytes for bcrypt compatibility
+    password = payload.password.encode(
+        'utf-8')[:72].decode('utf-8', errors='ignore')
+
+    if not user or not pwd_context.verify(password, user.get("password_hash", "")):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     token = create_access_token(str(user["_id"]))

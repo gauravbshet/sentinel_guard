@@ -9,4 +9,5 @@ cryptography==43.0.1
 motor==3.6.0
 python-dotenv==1.0.1
 passlib[bcrypt]==1.7.4
+supabase==1.0.0
 
