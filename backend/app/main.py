@@ -79,15 +79,47 @@ def create_app() -> FastAPI:
     # Protected routers using simple dependency
     security = HTTPBearer(auto_error=False)
 
-    def require_auth(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    async def require_auth(credentials: HTTPAuthorizationCredentials = Depends(security)):
         if credentials is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing credentials")
+
+        token = credentials.credentials
+        # Try local JWT verification first
         try:
-            verify_token(credentials.credentials)
+            verify_token(token)
+            return
         except Exception:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+            pass
+
+        # If local verification fails, try Supabase token introspection (if client available)
+        try:
+            db = get_db()
+            client = getattr(db, "client", None)
+            if client and hasattr(client, "auth"):
+                # supabase client may provide get_user or get_user_by_token
+                def _get_user():
+                    # Try different client methods
+                    if hasattr(client.auth, "get_user"):
+                        return client.auth.get_user(token)
+                    if hasattr(client.auth, "get_user_by_token"):
+                        return client.auth.get_user_by_token(token)
+                    # older clients may have api.get_user
+                    api = getattr(client, "api", None)
+                    if api and hasattr(api, "get_user"):
+                        return api.get_user(token)
+                    # as a last resort, return None
+                    return None
+
+                res = await __import__("asyncio").to_thread(_get_user)
+                # res could be dict-like or object; accept non-empty as valid
+                if res:
+                    return
+        except Exception:
+            pass
+
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
     app.include_router(monitor_routes.router, prefix="/api/monitor",
                        tags=["monitor"], dependencies=[Depends(require_auth)])
@@ -112,6 +144,11 @@ async def background_monitoring_loop():
     try:
         metrics = collect_system_metrics()
         res = predict_anomaly(metrics)
-        await db.anomaly_logs.insert_one({"metrics": metrics, **res})
+        # Prepare a JSON-serializable payload
+        payload = {"metrics": metrics, **res}
+        # convert any non-serializable types (like datetime) to strings via jsonable_encoder
+        from fastapi.encoders import jsonable_encoder
+        payload = jsonable_encoder(payload)
+        await db.anomaly_logs.insert_one(payload)
     except Exception:
         pass

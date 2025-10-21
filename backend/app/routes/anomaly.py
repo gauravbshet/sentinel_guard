@@ -22,7 +22,8 @@ async def detect_anomaly(payload: MetricsPayload | None = None):
     result = predict_anomaly(metrics)
     # Store log
     db = get_db()
+    # Use pydantic json-mode dump to ensure datetime is serialized to ISO string
     log = AnomalyLog(
-        metrics=metrics, score=result["score"], label=result["label"]).model_dump()
+        metrics=metrics, score=result["score"], label=result["label"]).model_dump(mode="json")
     await db.anomaly_logs.insert_one(log)
     return {"metrics": metrics, **result}

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import api from '../api/axiosInstance'
 
 export default function Login() {
@@ -7,6 +8,8 @@ export default function Login() {
     const [mode, setMode] = useState('login')
     const [error, setError] = useState('')
 
+    const navigate = useNavigate()
+
     const submit = async (e) => {
         e.preventDefault()
         try {
@@ -14,8 +17,30 @@ export default function Login() {
                 await api.post('/api/auth/signup', { email, password })
             }
             const { data } = await api.post('/api/auth/login', { email, password })
-            localStorage.setItem('sg_token', data.access_token)
-            location.href = '/'
+            // Try several common shapes for returned access token (backend or Supabase)
+            const token = data?.access_token || data?.data?.access_token || data?.data?.session?.access_token || data?.session?.access_token || data?.token
+            if (!token) {
+                // attempt to extract token from backend raw wrapper
+                const raw = data?.raw || data
+                let extracted = null
+                try {
+                    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+                    extracted = parsed?.session?.access_token || parsed?.data?.access_token || parsed?.access_token
+                } catch (e) {
+                    extracted = null
+                }
+                if (extracted) {
+                    localStorage.setItem('sg_token', extracted)
+                    navigate('/dashboard')
+                    return
+                }
+
+                setError('Login succeeded but no access token received: ' + JSON.stringify(raw))
+                return
+            }
+            localStorage.setItem('sg_token', token)
+            // SPA navigation to dashboard
+            navigate('/dashboard')
         } catch (err) {
             setError(err.response?.data?.detail || 'Request failed')
         }
